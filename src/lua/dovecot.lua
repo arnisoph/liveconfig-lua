@@ -7,7 +7,7 @@
 -- ---------------------------------------------------------------------------
 -- common/lua/dovecot.lua
 -- Lua module to manage dovecot POP3/IMAP server
--- $Id: dovecot.lua 2849 2014-04-24 17:05:03Z kk $
+--
 -- ---------------------------------------------------------------------------
 -- This is the "driver" module for dovecot pop/imap server.
 -- It must be loaded by the command
@@ -44,6 +44,11 @@ module("dovecot")
 -- really know what you're doing!
 if DISABLE_CRAM == nil then
   DISABLE_CRAM = false
+end
+
+-- Optionally disable updating dovecot.conf by LiveConfig
+if NOUPDATE == nil then
+  NOUPDATE = false
 end
 
 -- ---------------------------------------------------------------------------
@@ -209,13 +214,17 @@ function install(cfg, opts)
     userfile   = opts.prefix .. userfile
   end
 
-  -- for CentOS5 does not exists configpath...create
-  if not LC.fs.is_dir(configpath) then
-    LC.fs.mkdir(configpath)
-  end
-  -- back up old default configfile (if existing)
-  if LC.fs.is_file(configfile) and not LC.fs.is_file( configfile .. ".lcbak") then
-    LC.fs.rename( configfile,  configfile .. ".lcbak")
+  if NOUPDATE then
+    LC.log.print(LC.log.INFO, "Won't update Dovecot configuration (dovecot.NOUPDATE=true)")
+  else
+    -- for CentOS5 does not exists configpath...create
+    if not LC.fs.is_dir(configpath) then
+      LC.fs.mkdir(configpath)
+    end
+    -- back up old default configfile (if existing)
+    if LC.fs.is_file(configfile) and not LC.fs.is_file( configfile .. ".lcbak") then
+      LC.fs.rename( configfile,  configfile .. ".lcbak")
+    end
   end
 
   -- back up old default userfile file (if existing)
@@ -277,15 +286,19 @@ function uninstall(cfg, opts)
     userfile   = opts.prefix .. userfile
   end
 
-  -- restore original "dovecot.conf" (if existing...)
-  if LC.fs.is_file( configfile .. ".lcbak") then
-    LC.fs.rename( configfile .. ".lcbak", configfile)
+  if NOUPDATE then
+    LC.log.print(LC.log.INFO, "Won't update Dovecot configuration (dovecot.NOUPDATE=true)")
+  else
+    -- restore original "dovecot.conf" (if existing...)
+    if LC.fs.is_file( configfile .. ".lcbak") then
+      LC.fs.rename( configfile .. ".lcbak", configfile)
+    end
+    -- restore original "/etc/dovecot/passwd" (if existing...)
+    if LC.fs.is_file( userfile .. ".lcbak") then
+      LC.fs.rename( userfile .. ".lcbak", userfile)
+    end
   end
-  -- restore original "/etc/dovecot/passwd" (if existing...)
-  if LC.fs.is_file( userfile .. ".lcbak") then
-    LC.fs.rename( userfile .. ".lcbak", userfile)
-  end
-  
+
   -- Currently do not delete (because dependencies with postfix)
   -- Delete user and group vmail
   -- local data  = { }
@@ -295,7 +308,7 @@ function uninstall(cfg, opts)
   -- data.shell  = "nologin"
   -- data.passwd = ""
   -- local uid = LC.sys.user_exists("vmail")
-  -- if uid ~= false then 
+  -- if uid ~= false then
   --   LC.users.delUser(data)
   -- end
   -- local gid = LC.sys.group_exists("vmail")
@@ -392,43 +405,46 @@ function configure(cfg, opts)
     sfh:close()
   end
 
-  -- create /etc/dovecot.conf  
-  LC.liveconfig.writeHeader(fh)
+  if NOUPDATE then
+    LC.log.print(LC.log.INFO, "Won't update Dovecot configuration (dovecot.NOUPDATE=true)")
+  else
+    -- create /etc/dovecot.conf
+    LC.liveconfig.writeHeader(fh)
 
-  -- check version
-  if v_major == 1 then
-    -- Dovcot version 1.x
+    -- check version
+    if v_major == 1 then
+      -- Dovcot version 1.x
 
-    LC.log.print(LC.log.DEBUG, "Dovecot version 1.x")
+      LC.log.print(LC.log.DEBUG, "Dovecot version 1.x")
 
-    if opts.ssl then
-      if opts.sslports then
-        fh:write("protocols = imap imaps pop3 pop3s\n")
+      if opts.ssl then
+        if opts.sslports then
+          fh:write("protocols = imap imaps pop3 pop3s\n")
+        else
+          fh:write("protocols = imap pop3\n")
+        end
+        if v_minor < 2 then
+          fh:write("ssl_disable = no\n")
+        else
+          if opts.sslonly then
+            fh:write("ssl = required\n")
+          else
+            fh:write("ssl = yes\n")
+          end
+        end
+        if opts.sslpci then
+          -- PCI compliant ciphers (actually, defending BEAST is not necessary on POP3/IMAP, but most dumb PCI scans don't care :(
+          fh:write("ssl_cipher_list = ", LC.liveconfig.DEFAULT_SSL_PCI_CIPHERS, "\n")
+        else
+          fh:write("ssl_cipher_list = ", LC.liveconfig.DEFAULT_SSL_CIPHERS, "\n")
+        end
+        fh:write("ssl_cert_file = ", crtfile, "\n")
+        fh:write("ssl_key_file = ", keyfile, "\n")
       else
         fh:write("protocols = imap pop3\n")
       end
-      if v_minor < 2 then
-        fh:write("ssl_disable = no\n")
-      else
-        if opts.sslonly then
-          fh:write("ssl = required\n")
-        else
-          fh:write("ssl = yes\n")
-        end
-      end
-      if opts.sslpci then
-        -- PCI compliant ciphers (actually, defending BEAST is not necessary on POP3/IMAP, but most dumb PCI scans don't care :(
-        fh:write("ssl_cipher_list = ", LC.liveconfig.DEFAULT_SSL_PCI_CIPHERS, "\n")
-      else
-        fh:write("ssl_cipher_list = ", LC.liveconfig.DEFAULT_SSL_CIPHERS, "\n")
-      end
-      fh:write("ssl_cert_file = ", crtfile, "\n")
-      fh:write("ssl_key_file = ", keyfile, "\n")
-    else
-      fh:write("protocols = imap pop3\n")
-    end
 
-    fh:write([[
+      fh:write([[
 
 login_greeting = server ready
 disable_plaintext_auth = no
@@ -440,24 +456,24 @@ protocol imap {
   mail_plugins = quota imap_quota
 ]])
 
-    if opts.imapconn and v_minor > 0 then
-      -- only available since v1.1 - bad for CentOS 5.x shipping with Dovecot 1.0.7 :(
-      fh:write("  mail_max_userip_connections = ", opts.imapconn, "\n")
-    end
+      if opts.imapconn and v_minor > 0 then
+        -- only available since v1.1 - bad for CentOS 5.x shipping with Dovecot 1.0.7 :(
+        fh:write("  mail_max_userip_connections = ", opts.imapconn, "\n")
+      end
 
-    fh:write([[
+      fh:write([[
 }
 protocol pop3 {
   pop3_uidl_format = %08Xu%08Xv
   mail_plugins = quota
 ]])
 
-    if opts.pop3conn and v_minor > 0 then
-      -- only available since v1.1 - bad for CentOS 5.x shipping with Dovecot 1.0.7 :(
-      fh:write("  mail_max_userip_connections = ", opts.pop3conn, "\n")
-    end
+      if opts.pop3conn and v_minor > 0 then
+        -- only available since v1.1 - bad for CentOS 5.x shipping with Dovecot 1.0.7 :(
+        fh:write("  mail_max_userip_connections = ", opts.pop3conn, "\n")
+      end
 
-    fh:write([[
+      fh:write([[
 }
 protocol lda {
   postmaster_address = postmaster@localhost
@@ -469,14 +485,14 @@ protocol lda {
 auth default {
 ]])
 
-    -- optionally disable CRAM-MD5 authentication (see top of this file)
-    if DISABLE_CRAM then
-      fh:write("  mechanisms = plain login\n")
-    else
-      fh:write("  mechanisms = plain login cram-md5\n")
-    end
+      -- optionally disable CRAM-MD5 authentication (see top of this file)
+      if DISABLE_CRAM then
+        fh:write("  mechanisms = plain login\n")
+      else
+        fh:write("  mechanisms = plain login cram-md5\n")
+      end
 
-    fh:write([[
+      fh:write([[
   passdb passwd-file {
     args = /etc/dovecot/passwd
   }
@@ -504,29 +520,29 @@ plugin {
   quota_rule = *:storage=0
   quota_rule2 = Trash:storage=50M
 ]])
-    if opts.quotawarning then
-      fh:write("  quota_warning = storage=95%% /usr/lib/liveconfig/mailquota.sh 95\n")
-      fh:write("  quota_warning2 = storage=80%% /usr/lib/liveconfig/mailquota.sh 80\n")
-    end
-    fh:write([[
+      if opts.quotawarning then
+        fh:write("  quota_warning = storage=95%% /usr/lib/liveconfig/mailquota.sh 95\n")
+        fh:write("  quota_warning2 = storage=80%% /usr/lib/liveconfig/mailquota.sh 80\n")
+      end
+      fh:write([[
 }
 ]])
 
-  else
-    -- Dovecot version 2.x
-    LC.log.print(LC.log.DEBUG, "Dovcot version 2.x")
+    else
+      -- Dovecot version 2.x
+      LC.log.print(LC.log.DEBUG, "Dovcot version 2.x")
 
-    fh:write([[
+      fh:write([[
 
 login_greeting = server ready
 ]])
-    -- optionally disable CRAM-MD5 authentication (see top of this file)
-    if DISABLE_CRAM then
-      fh:write("auth_mechanisms = plain login\n")
-    else
-      fh:write("auth_mechanisms = plain login cram-md5\n")
-    end
-    fh:write([[
+      -- optionally disable CRAM-MD5 authentication (see top of this file)
+      if DISABLE_CRAM then
+        fh:write("auth_mechanisms = plain login\n")
+      else
+        fh:write("auth_mechanisms = plain login cram-md5\n")
+      end
+      fh:write([[
 disable_plaintext_auth = no
 ssl = no
 first_valid_uid = ]], uid, "\n", [[
@@ -544,8 +560,8 @@ plugin {
   quota_rule2 = Trash:storage=+50M
 }
 ]])
-    if opts.quotawarning then
-      fh:write([[
+      if opts.quotawarning then
+        fh:write([[
 plugin {
   quota_warning = storage=95%% quota-warning 95 %u
   quota_warning2 = storage=80%% quota-warning 80 %u
@@ -561,49 +577,49 @@ service quota-warning {
 }
 ]])
 
-    end
+      end
 
-    fh:write([[
+      fh:write([[
 
 protocols = imap pop3
 protocol imap {
   mail_plugins = $mail_plugins imap_quota
 ]])
-    if opts.imapconn then
-      fh:write("  mail_max_userip_connections = ", opts.imapconn, "\n")
-    end
-    fh:write([[
+      if opts.imapconn then
+        fh:write("  mail_max_userip_connections = ", opts.imapconn, "\n")
+      end
+      fh:write([[
 }
 protocol pop3 {
   pop3_client_workarounds = outlook-no-nuls oe-ns-eoh
 ]])
-    if opts.pop3conn then
-      fh:write("  mail_max_userip_connections = ", opts.pop3conn, "\n")
-    end
-    fh:write([[
+      if opts.pop3conn then
+        fh:write("  mail_max_userip_connections = ", opts.pop3conn, "\n")
+      end
+      fh:write([[
 }
 protocol lda {
   mail_plugins = $mail_plugins sieve
 }
 ]])
 
-    if opts.ssl then
-      if opts.sslonly then
-        fh:write("ssl = required\n")
-      else
-        fh:write("ssl = yes\n")
-      end
-      if opts.sslpci then
-        -- PCI compliant ciphers (actually, defending BEAST is not necessary on POP3/IMAP, but most dumb PCI scans don't care :(
-        fh:write("ssl_cipher_list = ", LC.liveconfig.DEFAULT_SSL_PCI_CIPHERS, "\n")
-      else
-        fh:write("ssl_cipher_list = ", LC.liveconfig.DEFAULT_SSL_CIPHERS, "\n")
-      end
-      fh:write("ssl_cert = <", crtfile, "\n")
-      fh:write("ssl_key = <", keyfile, "\n")
+      if opts.ssl then
+        if opts.sslonly then
+          fh:write("ssl = required\n")
+        else
+          fh:write("ssl = yes\n")
+        end
+        if opts.sslpci then
+          -- PCI compliant ciphers (actually, defending BEAST is not necessary on POP3/IMAP, but most dumb PCI scans don't care :(
+          fh:write("ssl_cipher_list = ", LC.liveconfig.DEFAULT_SSL_PCI_CIPHERS, "\n")
+        else
+          fh:write("ssl_cipher_list = ", LC.liveconfig.DEFAULT_SSL_CIPHERS, "\n")
+        end
+        fh:write("ssl_cert = <", crtfile, "\n")
+        fh:write("ssl_key = <", keyfile, "\n")
 
-      if not opts.sslports then
-    fh:write([[
+        if not opts.sslports then
+      fh:write([[
 service imap-login {
   inet_listener imaps {
     port = 0
@@ -615,8 +631,8 @@ service pop3-login {
   }
 }
 ]])
+        end
       end
-    end
 
     fh:write([[
 service auth {
@@ -644,25 +660,31 @@ userdb {
 
 ]])
 
-  end
+    end
 
-  LC.liveconfig.writeFooter(fh)
+    LC.liveconfig.writeFooter(fh)
+  end -- if NOUPDATE
+
   fh:close()
 
-  if v_major == 1 then
-    -- Dovcot version 1.x
-    if opts.quotawarning then
-      -- create copy of config file, remove quota warnings to avoid loops:
-      os.execute("sed -e 's/^[ \t]*quota_warning[0-9]*[ \t]*=.*$//' " .. configfile .. " >" .. configfile .. ".noquota")
-      LC.fs.setperm(configfile .. ".noquota", "0644", "dovecot", "root")
-    elseif LC.fs.is_file(configfile .. ".noquota") then
-      -- remove old "noquota" config file
-      os.execute("rm " .. configfile .. ".noquota")
+  if NOUPDATE then
+    LC.log.print(LC.log.INFO, "Won't update Dovecot configuration (dovecot.NOUPDATE=true)")
+  else
+    if v_major == 1 then
+      -- Dovcot version 1.x
+      if opts.quotawarning then
+        -- create copy of config file, remove quota warnings to avoid loops:
+        os.execute("sed -e 's/^[ \t]*quota_warning[0-9]*[ \t]*=.*$//' " .. configfile .. " >" .. configfile .. ".noquota")
+        LC.fs.setperm(configfile .. ".noquota", "0644", "dovecot", "root")
+      elseif LC.fs.is_file(configfile .. ".noquota") then
+        -- remove old "noquota" config file
+        os.execute("rm " .. configfile .. ".noquota")
+      end
     end
-  end
 
-  -- enable configuration
-  LC.fs.rename(configfile .. ".tmp", configfile)
+    -- enable configuration
+    LC.fs.rename(configfile .. ".tmp", configfile)
+  end
 
   -- update status file
   LC.liveconfig.writeStatus(statusfile, "dovecot", opts.revision, os.date("%Y-%m-%d %H:%M:%S %Z"))
