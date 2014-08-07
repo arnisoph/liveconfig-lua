@@ -663,7 +663,7 @@ userdb {
     end
 
     LC.liveconfig.writeFooter(fh)
-  end -- if NOUPDATE
+  end -- if not NOUPDATE
 
   fh:close()
 
