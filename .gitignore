@@ -1,0 +1,7 @@
+pkg/
+metadata.json
+*.idea
+*.swp
+*.tmp
+
+src/lua/custom.lua
