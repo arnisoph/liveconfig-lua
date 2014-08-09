@@ -13,9 +13,13 @@ NOTICE BEFORE YOU USE
 TODO
 ====
 
-None
+* basic mail alias management?
 
 Additional resources
 ====================
 
 The official code can be found at https://www.liveconfig.com/de/downloads.
+
+Implemented features:
+
+* dovecot NOUPDATE
