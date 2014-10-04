@@ -15,6 +15,7 @@ Branches
 ========
 
 ``<version>``: modified code
+
 ``<version>-upstream``: unmodified code from upstream, based on Debian x86_64 package
 
 TODO
