@@ -3,7 +3,7 @@
 -- | |__| \ V / -_) (__/ _ \ ' \|  _| / _` |
 -- |____|_|\_/\___|\___\___/_||_|_| |_\__, |
 --                                    |___/
--- Copyright (c) 2009-2013 Keppler IT GmbH.
+-- Copyright (c) 2009-2015 Keppler IT GmbH.
 -- ---------------------------------------------------------------------------
 -- common/lua/dovecot.lua
 -- Lua module to manage dovecot POP3/IMAP server
@@ -322,7 +322,7 @@ function uninstall(cfg, opts)
   end
 
   -- restart dovecot
-  os.execute(cfg["restart_cmd"])
+  LC.exec(cfg["restart_cmd"])
 
   return true
 end
@@ -410,6 +410,10 @@ function configure(cfg, opts)
   else
     -- create /etc/dovecot.conf
     LC.liveconfig.writeHeader(fh)
+
+    fh:write("# To include custom configuration options, write them into\n")
+    fh:write("# /etc/dovecot/dovecot.local.conf - then save the Dovecot settings\n")
+    fh:write("# again in LiveConfig (to update the dovecot.conf and include your file)\n\n")
 
     -- check version
     if v_major == 1 then
@@ -610,6 +614,10 @@ protocol lda {
         else
           fh:write("ssl = yes\n")
         end
+        if v_major > 2 or (v_major == 2 and v_minor > 0) then
+          -- ssl_protocols: supported since v2.1
+          fh:write("ssl_protocols = !SSLv2 !SSLv3\n")
+        end
         if opts.sslpci then
           -- PCI compliant ciphers (actually, defending BEAST is not necessary on POP3/IMAP, but most dumb PCI scans don't care :(
           fh:write("ssl_cipher_list = ", LC.liveconfig.DEFAULT_SSL_PCI_CIPHERS, "\n")
@@ -638,7 +646,7 @@ service pop3-login {
         fh:write("ssl = no\n")
       end
 
-    fh:write([[
+      fh:write([[
 service auth {
   unix_listener auth-userdb {
     group = mail
@@ -666,6 +674,12 @@ userdb {
 
     end
 
+    -- include "dovecot.local.conf" (if existing)
+    if LC.fs.is_file(configpath .. "/dovecot.local.conf") then
+      fh:write("# local configuration options\n")
+      fh:write("!include_try " .. configpath .. "/dovecot.local.conf\n")
+    end
+
     LC.liveconfig.writeFooter(fh)
   end -- if not NOUPDATE
 
@@ -678,7 +692,7 @@ userdb {
       -- Dovcot version 1.x
       if opts.quotawarning then
         -- create copy of config file, remove quota warnings to avoid loops:
-        os.execute("sed -e 's/^[ \t]*quota_warning[0-9]*[ \t]*=.*$//' " .. configfile .. " >" .. configfile .. ".noquota")
+        os.execute("sed -e 's/^[ \\t]*quota_warning[0-9]*[ \\t]*=.*$//' " .. configfile .. ".tmp >" .. configfile .. ".noquota")
         LC.fs.setperm(configfile .. ".noquota", "0644", "dovecot", "root")
       elseif LC.fs.is_file(configfile .. ".noquota") then
         -- remove old "noquota" config file
@@ -688,7 +702,7 @@ userdb {
 
     -- enable configuration
     LC.fs.rename(configfile .. ".tmp", configfile)
-  end
+  end -- if not NOUPDATE
 
   -- update status file
   LC.liveconfig.writeStatus(statusfile, "dovecot", opts.revision, os.date("%Y-%m-%d %H:%M:%S %Z"))

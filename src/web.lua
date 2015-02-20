@@ -7,7 +7,7 @@
 -- ---------------------------------------------------------------------------
 -- common/lua/web.lua
 -- Web server management
--- $Id: web.lua 3054 2014-09-12 16:22:29Z kk $
+--
 -- ---------------------------------------------------------------------------
 
 -- Imported functions
@@ -426,13 +426,14 @@ function deleteAccount(name)
 
   -- remove user's home directory
   if home ~= nil and LC.fs.is_dir(home) and home ~= "/" and name ~= "" then
-    LC.log.print(LC.log.DEBUG, "Deleting directory '" .. home .. "'")
+    LC.log.print(LC.log.INFO, "Deleting directory '" .. home .. "' ...")
 
     -- remove "immutable" flags:
     LC.exec("chattr -f -i " .. home .. "/conf/*/php.ini")
     LC.exec("chattr -f -i " .. home .. "/conf/*/php-fcgi-starter")
 
     LC.exec("rm -rf " .. home)
+    LC.log.print(LC.log.INFO, "Deleting directory '" .. home .. "': DONE")
   end
 
   -- delete user
